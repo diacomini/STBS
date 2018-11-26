@@ -46,25 +46,47 @@
  *
 ******************************************************************************/
 
-/*#################### INCLUDES ####################*/
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ INCLUDES @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
 #include "quaternionFilters_modified.h"
 #include "MPU9250_modified.h"
 #include <LiquidCrystal.h> 
 
-/*#################### PINS ####################*/
+
+
+
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ PINOUT @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
+
+//
 // Stepper Motor
+//
 const unsigned int stepperMotor_step = 2;   
 const unsigned int stepperMotor_direction = 3;
 const unsigned int stepperMotor_MS1 = 4;
 const unsigned int stepperMotor_MS2 = 5;
 const unsigned int stepperMotor_MS3 = 6;
 const unsigned int stepperMotor_enable = 7;
+
+//
 // Tension Sensor
+//
 const unsigned int tensionSensorPin = 10;   // (ANALOG IN)
+//
 // MPU9250
+//
 const unsigned int intPin = 12;   
 const unsigned int myLed = 13;    
+
+//
 // LCD Screen
+//
 const unsigned int rs = 24;
 const unsigned int en = 8;
 const unsigned int d4 = 9;
@@ -72,31 +94,66 @@ const unsigned int d5 = 23;
 const unsigned int d6 = 10;
 const unsigned int d7 = 22;
 
-/*#################### VARIABLES ####################*/
+
+
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ SYSTEM VARIABLES @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
+
+//
+// timeing variables
+//
 unsigned long timeCheck = millis();   // elapsed time (ms)
 unsigned long loopStartTime = 0;    // time at beginning of the loop()
 unsigned long dataTimeStamp = 0;    // time when data packet is sent to MATLAB
 int timeStep = 2000;   // interval in which to actuate stepper motor (ms)
 int orientationTimeStep = 10000;    // 10 s for orientation to run
+
+//
+// sensor/actuator variables
+//
 int stepperMotor_x;   // count variable 
 float tensionData;    // amount of force being applied
 float tensionVoltage;   // tenion Voltage  
-int tensionFlag = false;    // flag to indicate if tension has exceded max
 float model400_in = 0;    // data read in from Model 400
-int setupFlag = false;    // check to see when to move to stage 2
-int startCheck = 0;   // data from Matlab to indicate starting of the system
 
-LiquidCrystal lcd(rs, en, d4, d5, d6, d7);    // LCD Discplay setup
+//
+// flag variables
+//
+bool setupFlag = false;    // check to see when to move to stage 2
+int startCheck = 0;   // data from Matlab to indicate starting of the system
+int stopCheck = 0;    // flag to alert System Stop request
+bool stopFlag = false;
+bool tensionFlag = false;    // flag to indicate if tension has exceded max
+
+
+//
+// LCD Discplay setup
+//
+LiquidCrystal lcd(rs, en, d4, d5, d6, d7);    
 
 MPU9250 myIMU;    // create an instance of the MPU9250 class
 
-/* @@@@@@@@@@@@@@@@@@@@ SETUP FNCTION @@@@@@@@@@@@@@@@@@@@*/
-void setup() {
-  Serial.begin(19200);    // Serial Setup for comms with MATLAB
-  Serial1.begin(19200);   // Serial Setup for comms with Model 400
-  Wire.begin();           // Wire setup for comms with MPU9250
 
-  /*########## Stepper Motor Pin Setup ##########*/
+
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ SETUP FNCTION @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
+void setup() {
+  // Serial Setup for comms with MATLAB
+  Serial.begin(19200);    
+  // Serial Setup for comms with Model 400
+  Serial1.begin(19200);   
+  // Wire setup for comms with MPU9250
+  Wire.begin();       
+      
+  //
+  //########## Stepper Motor Pin Setup ##########
+  //
   pinMode(stepperMotor_step, OUTPUT);
   pinMode(stepperMotor_direction, OUTPUT);
   pinMode(stepperMotor_MS1, OUTPUT);
@@ -104,12 +161,27 @@ void setup() {
   pinMode(stepperMotor_MS3, OUTPUT);
   pinMode(stepperMotor_enable, OUTPUT);
 
-  BEDSetup();   //Set step, direction, microstep and enable pins to default states
+  //
+  // Big Easy Driver Setup (step, direction, microstep, and enable pins
+  //
+  BEDSetup(); 
 
   lcd.begin(16, 4);   // set up the LCD's number of columns(16) and rows(4):
   lcd.print("Orientation");
 
+
+
+  //__________________________________________________________________________
+  //
+  //     @@@@@@@@@@@@@@@@@@@@ MPU9250 SETUP AND READ @@@@@@@@@@@@@@@@@@@@
+  //__________________________________________________________________________
+  //
+
+  /*###############################################################################################################*/
+  
+  //
   // Set up MPU9250 the interrupt pin
+  //
   pinMode(intPin, INPUT);
   digitalWrite(intPin, LOW);
   pinMode(myLed, OUTPUT);
@@ -133,6 +205,10 @@ void setup() {
     // Get magnetometer calibration from AK8963 ROM
     myIMU.initAK8963(myIMU.magCalibration);
   } // if (c == 0x71)
+
+  //
+  // Condition if IMU is not detected
+  // 
   else
   {
     Serial.print("Could not connect to MPU9250: 0x");
@@ -140,7 +216,9 @@ void setup() {
     while(1) ; // Loop forever if communication doesn't happen
   }
 
-  // Read in MPU9250 for [10] seconds or undtil button is pressed
+  //
+  // Read in MPU9250 data
+  //
   while (setupFlag == false)
   {
     // If intPin goes high, all data registers have new data
@@ -185,17 +263,25 @@ void setup() {
                  myIMU.magbias[1];
       myIMU.mz = (float)myIMU.magCount[2]*myIMU.mRes*myIMU.magCalibration[2] -
                  myIMU.magbias[2];
-    } // if (readByte(MPU9250_ADDRESS, INT_STATUS) & 0x01)
+    } 
 
+    /*###############################################################################################################*/
+      
     // Must be called before updating quaternions!
     myIMU.updateTime();
-    
+
+    //
+    // Call the Quaternion Calculations
+    //
     MahonyQuaternionUpdate(myIMU.ax, myIMU.ay, myIMU.az, myIMU.gx*DEG_TO_RAD,
                            myIMU.gy*DEG_TO_RAD, myIMU.gz*DEG_TO_RAD, myIMU.my,
                            myIMU.mx, myIMU.mz, myIMU.deltat);
-    // Serial print and/or display at 0.5 s rate independent of data rates
-    myIMU.delt_t = millis() - myIMU.count;
 
+    //
+    // Serial print and/or display at 0.5 s rate independent of data rates
+    //
+    myIMU.delt_t = millis() - myIMU.count;
+    
     if (myIMU.delt_t > 500)
     {
   
@@ -207,93 +293,169 @@ void setup() {
       myIMU.roll  = atan2(2.0f * (*getQ() * *(getQ()+1) + *(getQ()+2) *
                     *(getQ()+3)), *getQ() * *getQ() - *(getQ()+1) * *(getQ()+1)
                     - *(getQ()+2) * *(getQ()+2) + *(getQ()+3) * *(getQ()+3));
+                    
       myIMU.pitch *= RAD_TO_DEG;
       myIMU.yaw   *= RAD_TO_DEG;
+      
       // Declination of SparkFun Electronics (40°05'26.6"N 105°11'05.9"W) is
       //   8° 30' E  ± 0° 21' (or 8.5°) on 2016-07-19
       // - http://www.ngdc.noaa.gov/geomag-web/#declination
       myIMU.yaw   -= 8.5;
       myIMU.roll  *= RAD_TO_DEG;
       
-      // set the cursor to column 0, line 1
-      // (note: line 1 is the second row, since counting begins with 0):
+
+      //
+      // Print Roll Pitch & Yaw to the LCD screen
+      //
       lcd.setCursor(0, 1);
-      // print the number of seconds since reset:
       lcd.print("Roll: " + String(myIMU.roll));
-      
       lcd.setCursor(4, 2);
       lcd.print("Pitch: " + String(myIMU.pitch));
-    
       lcd.setCursor(4,3);
       lcd.print("Yaw: " + String(myIMU.yaw));
+
+      //
+      // Send Orientation data in one line to matlab at time step 0.5s
+      //
+      Serial.println("Orientation Data    " + String(myIMU.roll) + "    " + String(myIMU.pitch) + "    " + String(myIMU.yaw) + "\n"); 
         
       myIMU.count = millis();
       myIMU.sumCount = 0;
       myIMU.sum = 0;
     } // if (myIMU.delt_t > 500)
 
+
+    //
+    // Continuously read serial data from MATLAB
+    //
     if (Serial.available())
     {
       startCheck = Serial.read();
       Serial.println(startCheck);
     }
-    
+
+    //
+    // If startCheck = 49 begin test
+    //
     if(startCheck == 49)
     {
       setupFlag = true;
     }
+    
   } // while (millis() - timeCheck) < orientationTimeStep
 
-  // Send the Orientation date to MATLAB
-  Serial.println("Orientation Data\t" + String(myIMU.roll) + "\t" + String(myIMU.pitch) + "\t" + String(myIMU.yaw) + "\n"); 
+  //
+  // Main Loop Start time set
+  // Time Check set
+  //
+  loopStartTime = millis();
   timeCheck = millis();
 
-  // clock initial start time
-  loopStartTime = millis();
 }
-/*$$$$$$$$$$$$$$$$$$$$ MAIN LOOP $$$$$$$$$$$$$$$$$$$$*/
-void loop() {
-  
-  tensionData = analogRead(tensionSensorPin);   // read in tension being applied
-  tensionVoltage = (tensionData *5)/ 1023;    // Convert tension data to voltage
-  dataTimeStamp = millis() - loopStartTime;
-  model400_in = Serial1.read();
-  Serial.println(String(dataTimeStamp) + "\t" + String(tensionVoltage) + "\t" + String(model400_in));
 
+
+
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ LOOP/MAIN FNCTION @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
+void loop() {
+
+  //
+  // Read in Tension Data 
+  // Convert to voltage
+  //
+  tensionData = analogRead(tensionSensorPin);
+  tensionVoltage = (tensionData *5)/ 1023;
+
+  //
+  // Read in Stop Flag from MATLAB
+  //
+  if (Serial.available())
+  {
+    stopCheck = Serial.read();
+    if (stopCheck == 49)
+    {
+      stopFlag = true;
+    }
+  }
+  
+  //
+  // Time stamp data before sending to Matlab
+  //
+  dataTimeStamp = millis() - loopStartTime;
+
+  //
+  // Read data on Serial Line 1 (MODEL400)
+  //
+  model400_in = Serial1.read();
+
+  //
+  // Write data to Serial Line 0 (MATLAB)
+  //
+  Serial.println(String(dataTimeStamp) + "    " + String(tensionVoltage) + "    " + String(model400_in) + "    " + String(tensionFlag));
+
+
+  //
+  // Ensure tension stays under 2.2 Volts
+  //
   if (tensionVoltage >= 2.2)
   {
     tensionFlag = true;
   }
-  
-  if ((millis() - timeCheck) > timeStep)    // ensures branch is only ran every (timeStep)(ms)
+
+
+  //
+  // Run Branch every (timeStep)(ms)
+  //
+  if ((millis() - timeCheck) > timeStep)
   {
-    if (tensionFlag == false)
+    
+    if (!tensionFlag & !stopFlag)
     {
-      digitalWrite(stepperMotor_enable, LOW);    // Pull enable pin low to set FETs active and allow motor control
-      StepMotor();    // rotate stepper motor
+      // Pull enable pin low to set FETs active and allow motor control
+      digitalWrite(stepperMotor_enable, LOW);
+
+      // rotate stepper motor
+      StepMotor();    
     }
 
     timeCheck = millis();   // reset time Check
     
   }
+
+  //
+  // Ensure code runs at 100+ ms intervals
+  //
   delay(100);
 }
 
 
-/*&&&&&&&&&&&&&&&&&&&& FUNNCTIONS &&&&&&&&&&&&&&&&&&&&*/
 
+//__________________________________________________________________________
+//
+//        @@@@@@@@@@@@@@@@@@@@ SYSTEM FNCTIONS @@@@@@@@@@@@@@@@@@@@
+//__________________________________________________________________________
+//
+
+//
 //Reset Big Easy Driver pins to default states
+//
 void BEDSetup()
 {
   digitalWrite(stepperMotor_step, LOW);
   digitalWrite(stepperMotor_direction, HIGH);   // Pull HIGH to step clockwise
   digitalWrite(stepperMotor_MS1, HIGH);   // \\
-  digitalWrite(stepperMotor_MS2, HIGH);   //  Pull all 3 HIGH for 16th step
+  digitalWrite(stepperMotor_MS2, HIGH);   //  }} Pull all 3 HIGH for 16th step
   digitalWrite(stepperMotor_MS3, HIGH);   // //
   digitalWrite(stepperMotor_enable, HIGH);
 }
 
+
+//
 // Turn Motor   This function seems to take about 2 seconds to complete as is
+//
 void StepMotor()
 {
   for(stepperMotor_x= 1; stepperMotor_x<10; stepperMotor_x++)  //Loop the forward stepping enough times for motion to be visible
