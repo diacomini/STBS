@@ -78,6 +78,7 @@ const unsigned int stepperMotor_enable = 7;
 // Tension Sensor
 //
 const unsigned int tensionSensorPin = 10;   // (ANALOG IN)
+
 //
 // MPU9250
 //
@@ -117,6 +118,8 @@ int orientationTimeStep = 10000;    // 10 s for orientation to run
 int stepperMotor_x;   // count variable 
 float tensionData;    // amount of force being applied
 float tensionVoltage;   // tenion Voltage  
+float tensionLimit = 1.8; // tension Limit
+float tensionScaleFactor = 2.2f/tensionLimit;
 float model400_in = 0;    // data read in from Model 400
 
 //
@@ -394,13 +397,13 @@ void loop() {
   //
   // Write data to Serial Line 0 (MATLAB)
   //
-  Serial.println(String(dataTimeStamp) + "    " + String(tensionVoltage) + "    " + String(model400_in) + "    " + String(tensionFlag));
+  Serial.println(String(dataTimeStamp) + "    " + String(tensionVoltage*tensionScaleFactor) + "    " + String(model400_in) + "    " + String(tensionFlag));
 
 
   //
   // Ensure tension stays under 2.2 Volts
   //
-  if (tensionVoltage >= 2.2)
+  if (tensionVoltage >= tensionLimit)
   {
     tensionFlag = true;
   }
